@@ -2,6 +2,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import numpy as np
+from plotly.subplots import make_subplots
 
 
 @st.cache_data
@@ -23,20 +25,20 @@ def load_and_process_data(file_path, analysis_type):
     df = df.drop(columns=[col for col in columns_to_drop if col in df.columns], errors='ignore')
     
     # Debug: Show remaining columns
-    # st.write("**Remaining columns after cleanup:**", len(df.columns))
-    # st.write("**All column names:**", df.columns.tolist())
-    # st.write("**Column data types:**", df.dtypes.head(20))
+    #st.write("**Remaining columns after cleanup:**", len(df.columns))
+    #st.write("**All column names:**", df.columns.tolist())
+    #st.write("**Column data types:**", df.dtypes.head(20))
     
     # Find the appropriate grouping column based on analysis type
     if analysis_type == "Geography":
         grouping_col = 'Country'
         if grouping_col not in df.columns:
-            # st.error(f"Geography column '{grouping_col}' not found!")
+            st.error(f"Geography column '{grouping_col}' not found!")
             return None, None, None
     else:  # Industry
         grouping_col = 'Industry'
         if grouping_col not in df.columns:
-            # st.error(f"Industry column '{grouping_col}' not found!")
+            st.error(f"Industry column '{grouping_col}' not found!")
             return None, None, None
     
     # IMPROVED: Multiple methods to detect datetime columns for 2024
@@ -83,15 +85,15 @@ def load_and_process_data(file_path, analysis_type):
             # If that fails, sort as strings
             monthly_cols = sorted(monthly_cols)
     
-    # st.write(f"**Found {len(monthly_cols)} monthly columns**")
-    # if monthly_cols:
-    #     st.write("**Monthly columns found:**", [str(col) for col in monthly_cols[:6]])
+    st.write(f"**Found {len(monthly_cols)} monthly columns**")
+    if monthly_cols:
+        st.write("**Monthly columns found:**", [str(col) for col in monthly_cols[:6]])
     
     if len(monthly_cols) == 0:
-        # st.error("No monthly revenue columns found for 2024!")
-        # st.write("**Debug info - all columns:**")
-        # for i, col in enumerate(df.columns):
-        #     st.write(f"{i}: {col} (type: {type(col)})")
+        st.error("No monthly revenue columns found for 2024!")
+        st.write("**Debug info - all columns:**")
+        for i, col in enumerate(df.columns):
+            st.write(f"{i}: {col} (type: {type(col)})")
         return None, None, None
     
     # Prepare clean dataframe
@@ -129,10 +131,10 @@ def load_and_process_data(file_path, analysis_type):
             quarterly_mrr[quarter] = 0
     
     # Debug: Show quarterly totals
-    # quarterly_totals = quarterly_mrr.sum()
-    # st.write("**Quarterly Totals Debug:**")
-    # for quarter, total in quarterly_totals.items():
-    #     st.write(f"- {quarter}: ${total:,.2f}")
+    quarterly_totals = quarterly_mrr.sum()
+    st.write("**Quarterly Totals Debug:**")
+    for quarter, total in quarterly_totals.items():
+        st.write(f"- {quarter}: ${total:,.2f}")
     
     # Calculate quarterly percentages
     quarterly_percentages = pd.DataFrame(index=quarterly_mrr.index)
@@ -146,7 +148,26 @@ def load_and_process_data(file_path, analysis_type):
     # Round to 2 decimal places
     quarterly_mrr = quarterly_mrr.round(2)
     quarterly_percentages = quarterly_percentages.round(2)
-    
+
+    if analysis_type is None:
+        # For revenue bridge analysis, also return the raw df and customer info
+        customer_column = None
+        possible_customer_cols = ['Customer', 'Client', 'Customer Name', 'Client Name', 
+                                 'Company', 'Company Name', 'Entity', 'Account']
+        
+        for col in possible_customer_cols:
+            if col in df.columns:
+                customer_column = col
+                break
+        
+        if customer_column is None:
+            for col in df.columns:
+                if df[col].dtype == 'object' and col not in ['Country', 'Industry']:
+                    customer_column = col
+                    break
+        
+        return df, customer_column, monthly_cols
+        
     return quarterly_mrr, quarterly_percentages, mrr_grouped
 
 
@@ -476,5 +497,232 @@ def create_customer_concentration_chart(top_customers_analysis):
         textposition='outside',
         hovertemplate='<b>%{x}</b><br>Revenue Share: %{y:.2f}%<extra></extra>'
     )
+    
+    return fig
+def calculate_revenue_bridge(df, customer_column, monthly_cols):
+    """Calculate revenue bridge components between Q1 and Q2"""
+    
+    # Get Q1 and Q2 columns
+    q1_cols = monthly_cols[:3]   # First 3 months
+    q2_cols = monthly_cols[3:6]  # Next 3 months
+    
+    # Create customer revenue dataframes
+    customer_df = df[[customer_column] + q1_cols + q2_cols].copy()
+    
+    # Convert to numeric
+    for col in q1_cols + q2_cols:
+        customer_df[col] = pd.to_numeric(customer_df[col], errors='coerce').fillna(0)
+    
+    # Remove rows with null customer names
+    customer_df = customer_df.dropna(subset=[customer_column])
+    customer_df = customer_df[customer_df[customer_column].astype(str).str.strip() != '']
+    
+    # Group by customer and sum quarterly revenue
+    customer_grouped = customer_df.groupby(customer_column).sum()
+    
+    # Calculate Q1 and Q2 totals per customer
+    customer_grouped['Q1_Total'] = customer_grouped[q1_cols].sum(axis=1)
+    customer_grouped['Q2_Total'] = customer_grouped[q2_cols].sum(axis=1)
+    
+    # Calculate overall Q1 and Q2 revenue
+    opening_revenue = customer_grouped['Q1_Total'].sum()
+    #opening_revenue =  11984265
+    closing_revenue = customer_grouped['Q2_Total'].sum()
+    #closing_revenue =  13511929
+    
+    # Calculate bridge components
+    q1_revenue = customer_grouped['Q1_Total']
+    q2_revenue = customer_grouped['Q2_Total']
+    
+    # Churn: Customers with revenue in Q1 but zero in Q2
+    churned_customers = q1_revenue[(q1_revenue > 0) & (q2_revenue == 0)]
+    churn = -churned_customers.sum()  # Negative value (lost revenue)
+    
+    # New customers: Customers with zero revenue in Q1 but revenue in Q2
+    new_customers_data = q2_revenue[(q1_revenue == 0) & (q2_revenue > 0)]
+    new_customers = new_customers_data.sum()
+    
+    # Expansion: Existing customers with increased revenue
+    expansion_data = q2_revenue - q1_revenue
+    expansion = expansion_data[(expansion_data > 0) & (q1_revenue > 0)].sum()
+    
+    # Contraction: Existing customers with decreased revenue (but not churned)
+    contraction = expansion_data[(expansion_data < 0) & (q2_revenue > 0)].sum()
+    
+    # Calculate NRR and GRR - CORRECTED FORMULAS
+    nrr = (opening_revenue + churn + expansion + contraction) / opening_revenue if opening_revenue != 0 else 0
+    grr = (opening_revenue + churn + contraction) / opening_revenue if opening_revenue != 0 else 0
+    
+    # Prepare detailed customer breakdown - ENSURE THIS IS PROPERLY DEFINED
+    customer_analysis = pd.DataFrame({
+        'Customer': customer_grouped.index,
+        'Q1_Revenue': customer_grouped['Q1_Total'],
+        'Q2_Revenue': customer_grouped['Q2_Total'],
+        'Change': customer_grouped['Q2_Total'] - customer_grouped['Q1_Total'],
+        'Change_Pct': ((customer_grouped['Q2_Total'] - customer_grouped['Q1_Total']) / customer_grouped['Q1_Total'] * 100).replace([np.inf, -np.inf], np.nan).fillna(0)
+    })
+    
+    # Add customer segments
+    def categorize_customer(row):
+        if row['Q1_Revenue'] > 0 and row['Q2_Revenue'] == 0:
+            return 'Churned'
+        elif row['Q1_Revenue'] == 0 and row['Q2_Revenue'] > 0:
+            return 'New Customer'
+        elif row['Change'] > 0 and row['Q1_Revenue'] > 0:
+            return 'Expansion'
+        elif row['Change'] < 0 and row['Q2_Revenue'] > 0:
+            return 'Contraction'
+        else:
+            return 'Stable'
+    
+    customer_analysis['Segment'] = customer_analysis.apply(categorize_customer, axis=1)
+    
+    # Bridge data
+    bridge_data = {
+        'Opening_Revenue_Q1': opening_revenue,
+        'Churn': churn,
+        'Expansion': expansion,
+        'Contraction': contraction,
+        'New_Customers': new_customers,
+        'Closing_Revenue_Q2': closing_revenue,
+        'Net_Change': closing_revenue - opening_revenue,
+        'NRR': nrr,
+        'GRR': grr
+    }
+    
+    # Detailed metrics
+    bridge_metrics = {
+        'churned_customers_count': len(churned_customers),
+        'new_customers_count': len(new_customers_data),
+        'expansion_customers_count': len(expansion_data[(expansion_data > 0) & (q1_revenue > 0)]),
+        'contraction_customers_count': len(expansion_data[(expansion_data < 0) & (q2_revenue > 0)]),
+        'churned_customers_list': churned_customers,
+        'new_customers_list': new_customers_data,
+        'top_expansion_customers': expansion_data[(expansion_data > 0) & (q1_revenue > 0)].nlargest(5),
+        'top_contraction_customers': expansion_data[(expansion_data < 0) & (q2_revenue > 0)].nsmallest(5)
+    }
+    
+    # ENSURE ALL THREE VARIABLES ARE RETURNED
+    return bridge_data, customer_analysis, bridge_metrics
+
+
+def create_revenue_bridge_chart(bridge_data):
+    """Create a waterfall-style revenue bridge chart"""
+    
+    categories = ['Q1 Revenue', 'Churn', 'Expansion', 'Contraction', 'New Customers', 'Q2 Revenue']
+    values = [
+        bridge_data['Opening_Revenue_Q1'],
+        bridge_data['Churn'],
+        bridge_data['Expansion'], 
+        bridge_data['Contraction'],
+        bridge_data['New_Customers'],
+        bridge_data['Closing_Revenue_Q2']
+    ]
+    
+    # Create colors - green for positive, red for negative, blue for totals
+    colors = ['lightblue', 'red', 'green', 'orange', 'purple', 'lightblue']
+    
+    fig = go.Figure()
+    
+    # Add bars for each component
+    for i, (cat, val, color) in enumerate(zip(categories, values, colors)):
+        fig.add_trace(go.Bar(
+            x=[cat],
+            y=[val],
+            name=cat,
+            marker_color=color,
+            text=f'${val:,.0f}',
+            textposition='outside' if val >= 0 else 'inside',
+            showlegend=False
+        ))
+    
+    fig.update_layout(
+        title='Revenue Bridge: Q1 to Q2 2024',
+        xaxis_title='Components',
+        yaxis_title='Revenue (USD)',
+        height=500,
+        font=dict(size=12),
+        yaxis=dict(tickformat='$,.0f')
+    )
+    
+    return fig
+
+
+def create_customer_segment_chart(customer_analysis):
+    """Create a pie chart showing customer segmentation"""
+    
+    segment_counts = customer_analysis['Segment'].value_counts()
+    
+    fig = px.pie(
+        values=segment_counts.values,
+        names=segment_counts.index,
+        title='Customer Segmentation: Q1 to Q2 Movement',
+        color_discrete_sequence=px.colors.qualitative.Set2
+    )
+    
+    fig.update_traces(
+        textposition='inside',
+        textinfo='percent+label',
+        textfont_size=12
+    )
+    
+    fig.update_layout(
+        height=400,
+        font=dict(size=12)
+    )
+    
+    return fig
+
+
+def create_nrr_grr_gauge_chart(nrr, grr):
+    """Create gauge charts for NRR and GRR"""
+    
+    fig = make_subplots(
+        rows=1, cols=2,
+        specs=[[{'type': 'indicator'}, {'type': 'indicator'}]],
+        subplot_titles=("Net Revenue Retention (NRR)", "Gross Revenue Retention (GRR)")
+    )
+    
+    # NRR Gauge
+    fig.add_trace(go.Indicator(
+        mode = "gauge+number+delta",
+        value = nrr * 100,
+        domain = {'x': [0, 1], 'y': [0, 1]},
+        title = {'text': "NRR %"},
+        delta = {'reference': 100},
+        gauge = {
+            'axis': {'range': [None, 150]},
+            'bar': {'color': "darkblue"},
+            'steps': [
+                {'range': [0, 90], 'color': "lightgray"},
+                {'range': [90, 100], 'color': "orange"},
+                {'range': [100, 150], 'color': "lightgreen"}],
+            'threshold': {
+                'line': {'color': "red", 'width': 4},
+                'thickness': 0.75,
+                'value': 100}}
+    ), row=1, col=1)
+    
+    # GRR Gauge
+    fig.add_trace(go.Indicator(
+        mode = "gauge+number+delta",
+        value = grr * 100,
+        domain = {'x': [0, 1], 'y': [0, 1]},
+        title = {'text': "GRR %"},
+        delta = {'reference': 100},
+        gauge = {
+            'axis': {'range': [None, 100]},
+            'bar': {'color': "darkgreen"},
+            'steps': [
+                {'range': [0, 80], 'color': "lightgray"},
+                {'range': [80, 90], 'color': "orange"},
+                {'range': [90, 100], 'color': "lightgreen"}],
+            'threshold': {
+                'line': {'color': "red", 'width': 4},
+                'thickness': 0.75,
+                'value': 90}}
+    ), row=1, col=2)
+    
+    fig.update_layout(height=300, font={'size': 12})
     
     return fig
