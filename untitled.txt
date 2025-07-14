@@ -1,0 +1,237 @@
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+
+
+@st.cache_data
+def load_and_process_data(file_path, analysis_type):
+    """Load and process the revenue data for quarterly analysis"""
+    
+    # Load the Excel file
+    df = pd.read_excel(file_path, sheet_name='Sheet1')
+    
+    # Drop unnecessary columns upfront
+    columns_to_drop = [
+        "Entity\nUpto Mar 2024", 
+        "Entity April 2024", 
+        "Entity grouped",
+        "S. no."
+    ]
+    
+    # Drop columns if they exist
+    df = df.drop(columns=[col for col in columns_to_drop if col in df.columns], errors='ignore')
+    
+    # Debug: Show remaining columns
+    st.write("**Remaining columns after cleanup:**", len(df.columns))
+    st.write("**All column names:**", df.columns.tolist())
+    st.write("**Column data types:**", df.dtypes.head(20))
+    
+    # Find the appropriate grouping column based on analysis type
+    if analysis_type == "Geography":
+        grouping_col = 'Country'
+        if grouping_col not in df.columns:
+            st.error(f"Geography column '{grouping_col}' not found!")
+            return None, None, None
+    else:  # Industry
+        grouping_col = 'Industry'
+        if grouping_col not in df.columns:
+            st.error(f"Industry column '{grouping_col}' not found!")
+            return None, None, None
+    
+    # IMPROVED: Multiple methods to detect datetime columns for 2024
+    monthly_cols = []
+    
+    # Method 1: Check for pandas Timestamp objects
+    for col in df.columns:
+        if isinstance(col, pd.Timestamp) and col.year == 2024:
+            monthly_cols.append(col)
+    
+    # Method 2: If no Timestamp objects found, try parsing string columns
+    if not monthly_cols:
+        for col in df.columns:
+            if isinstance(col, str):
+                # Check if it looks like a date string
+                if '2024' in str(col) and ('-' in str(col) or '/' in str(col)):
+                    try:
+                        parsed_date = pd.to_datetime(col, errors='coerce')
+                        if pd.notna(parsed_date) and parsed_date.year == 2024:
+                            monthly_cols.append(col)
+                    except:
+                        continue
+    
+    # Method 3: If still no columns found, look for datetime-like strings
+    if not monthly_cols:
+        for col in df.columns:
+            col_str = str(col)
+            # Look for datetime pattern like "2024-01-01 00:00:00"
+            if '2024-' in col_str and '00:00:00' in col_str:
+                monthly_cols.append(col)
+    
+    # Method 4: Last resort - look for any column containing "2024"
+    if not monthly_cols:
+        for col in df.columns:
+            if '2024' in str(col):
+                monthly_cols.append(col)
+    
+    # Sort monthly columns chronologically
+    if monthly_cols:
+        try:
+            # Try to sort by converting to datetime
+            monthly_cols = sorted(monthly_cols, key=lambda x: pd.to_datetime(str(x)))
+        except:
+            # If that fails, sort as strings
+            monthly_cols = sorted(monthly_cols)
+    
+    st.write(f"**Found {len(monthly_cols)} monthly columns**")
+    if monthly_cols:
+        st.write("**Monthly columns found:**", [str(col) for col in monthly_cols[:6]])
+    
+    if len(monthly_cols) == 0:
+        st.error("No monthly revenue columns found for 2024!")
+        st.write("**Debug info - all columns:**")
+        for i, col in enumerate(df.columns):
+            st.write(f"{i}: {col} (type: {type(col)})")
+        return None, None, None
+    
+    # Prepare clean dataframe
+    mrr_df = df[[grouping_col] + monthly_cols].copy()
+    
+    # Convert monthly columns to numeric, handling any data type issues
+    for col in monthly_cols:
+        mrr_df[col] = pd.to_numeric(mrr_df[col], errors='coerce').fillna(0)
+    
+    # Remove rows where grouping column is null or empty
+    mrr_df = mrr_df.dropna(subset=[grouping_col])
+    mrr_df = mrr_df[mrr_df[grouping_col].astype(str).str.strip() != '']
+    
+    # Group by the selected column and sum monthly MRR
+    mrr_grouped = mrr_df.groupby(grouping_col).sum()
+    
+    # Use first 12 months or available months
+    available_months = min(12, len(monthly_cols))
+    monthly_cols = monthly_cols[:available_months]
+    
+    # Create quarterly aggregation
+    quarters_mapping = {
+        'Q1 2024': monthly_cols[:3],                    # Jan, Feb, Mar
+        'Q2 2024': monthly_cols[3:6] if len(monthly_cols) >= 6 else [],    # Apr, May, Jun
+        'Q3 2024': monthly_cols[6:9] if len(monthly_cols) >= 9 else [],    # Jul, Aug, Sep
+        'Q4 2024': monthly_cols[9:12] if len(monthly_cols) >= 12 else []   # Oct, Nov, Dec
+    }
+    
+    # Calculate quarterly MRR
+    quarterly_mrr = pd.DataFrame(index=mrr_grouped.index)
+    for quarter, months in quarters_mapping.items():
+        if months:  # Only process if months exist
+            quarterly_mrr[quarter] = mrr_grouped[months].sum(axis=1)
+        else:
+            quarterly_mrr[quarter] = 0
+    
+    # Debug: Show quarterly totals
+    quarterly_totals = quarterly_mrr.sum()
+    st.write("**Quarterly Totals Debug:**")
+    for quarter, total in quarterly_totals.items():
+        st.write(f"- {quarter}: ${total:,.2f}")
+    
+    # Calculate quarterly percentages
+    quarterly_percentages = pd.DataFrame(index=quarterly_mrr.index)
+    for quarter in quarterly_mrr.columns:
+        total = quarterly_mrr[quarter].sum()
+        if total > 0:
+            quarterly_percentages[quarter] = (quarterly_mrr[quarter] / total) * 100
+        else:
+            quarterly_percentages[quarter] = 0
+    
+    # Round to 2 decimal places
+    quarterly_mrr = quarterly_mrr.round(2)
+    quarterly_percentages = quarterly_percentages.round(2)
+    
+    return quarterly_mrr, quarterly_percentages, mrr_grouped
+
+
+def create_mrr_chart(quarterly_mrr, analysis_type):
+    """Create a bar chart for quarterly MRR by selected dimension"""
+    
+    # Choose color scheme based on analysis type
+    color_scheme = px.colors.qualitative.Set3 if analysis_type == "Geography" else px.colors.qualitative.Set2
+    
+    fig = px.bar(
+        quarterly_mrr.T,
+        x=quarterly_mrr.T.index,
+        y=quarterly_mrr.columns,
+        title=f"Quarterly MRR by {analysis_type}",
+        labels={'value': 'MRR (in millions)', 'index': 'Quarter'},
+        color_discrete_sequence=color_scheme
+    )
+    
+    fig.update_layout(
+        height=500,
+        xaxis_title="Quarter",
+        yaxis_title="MRR (USD)",
+        legend_title=analysis_type,
+        font=dict(size=12)
+    )
+    
+    return fig
+
+
+def create_percentage_pie_chart(quarterly_percentages, quarter, analysis_type):
+    """Create a pie chart for MRR percentage distribution for a single quarter"""
+    
+    # Get data for the selected quarter
+    quarter_data = quarterly_percentages[quarter]
+    
+    # Filter out zero values for cleaner pie chart
+    quarter_data = quarter_data[quarter_data > 0]
+    
+    # Choose color scheme based on analysis type
+    color_scheme = px.colors.qualitative.Set3 if analysis_type == "Geography" else px.colors.qualitative.Set2
+    
+    fig = px.pie(
+        values=quarter_data.values,
+        names=quarter_data.index,
+        title=f"MRR Percentage Distribution by {analysis_type} - {quarter}",
+        color_discrete_sequence=color_scheme
+    )
+    
+    fig.update_traces(
+        textposition='inside', 
+        textinfo='percent+label',
+        textfont_size=12
+    )
+    
+    fig.update_layout(
+        height=500,
+        legend_title=analysis_type,
+        font=dict(size=12),
+        showlegend=True
+    )
+    
+    return fig
+
+
+def create_trend_chart(quarterly_mrr, analysis_type):
+    """Create a line chart showing MRR trends by selected dimension"""
+    
+    fig = go.Figure()
+    
+    for dimension in quarterly_mrr.index:
+        fig.add_trace(go.Scatter(
+            x=quarterly_mrr.columns,
+            y=quarterly_mrr.loc[dimension],
+            mode='lines+markers',
+            name=dimension,
+            line=dict(width=3),
+            marker=dict(size=8)
+        ))
+    
+    fig.update_layout(
+        title=f"MRR Trend Analysis by {analysis_type}",
+        xaxis_title="Quarter",
+        yaxis_title="MRR (USD)",
+        height=500,
+        font=dict(size=12)
+    )
+    
+    return fig

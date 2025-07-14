@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 from main import (
     load_and_process_data,
-    create_mrr_chart,
     create_percentage_pie_chart,
     create_trend_chart,
     calculate_monthly_data_simple,
@@ -83,12 +82,12 @@ def main():
     )
     
     # Display selected analysis info
-    if analysis_type == "Geography":
-        st.info("**Geographic Analysis Selected** - Analyzing MRR distribution across different countries/regions")
-    elif analysis_type == "Industry":
-        st.info("**Industry Analysis Selected** - Analyzing MRR distribution across different industry sectors")
-    else: 
-        st.info("**Revenue Bridge Analysis Selected** - Analyzing revenue movement from Q1 to Q2 with churn, expansion, and acquisition insights")
+    #if analysis_type == "Geography":
+        #st.info("**Geographic Analysis Selected** - Analyzing MRR distribution across different countries/regions")
+    #elif analysis_type == "Industry":
+        #st.info("**Industry Analysis Selected** - Analyzing MRR distribution across different industry sectors")
+    #else: 
+        #st.info("**Revenue Bridge Analysis Selected** - Analyzing revenue movement from Q1 to Q2 with churn, expansion, and acquisition insights")
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -188,7 +187,7 @@ def main():
                         st.metric(
                             "Net Revenue Retention (NRR)", 
                             f"{nrr_value:.1%}",
-                            delta=f"{(nrr_value - 1.0):.1%}",
+                            #delta=f"{(nrr_value - 1.0):.1%}",
                             delta_color=nrr_color,
                             help="(Opening Revenue + Churn + Expansion + Contraction) / Opening Revenue"
                         )
@@ -199,7 +198,7 @@ def main():
                         st.metric(
                             "Gross Revenue Retention (GRR)", 
                             f"{grr_value:.1%}",
-                            delta=f"{(grr_value - 1.0):.1%}",
+                            #delta=f"{(grr_value - 1.0):.1%}",
                             delta_color=grr_color,
                             help="(Opening Revenue + Churn + Contraction) / Opening Revenue"
                         )
@@ -210,7 +209,7 @@ def main():
                         st.metric(
                             "Net Revenue Change", 
                             f"${net_change:,.0f}",
-                            delta=f"{(net_change / bridge_data['Opening_Revenue_Q1']):.1%}",
+                            #delta=f"{(net_change / bridge_data['Opening_Revenue_Q1']):.1%}",
                             delta_color=change_color
                         )
                     
@@ -219,7 +218,7 @@ def main():
                         st.metric(
                             "Churn Rate", 
                             f"{churn_rate:.1%}",
-                            delta=f"{bridge_metrics['churned_customers_count']} customers",
+                            #delta=f"{bridge_metrics['churned_customers_count']} customers",
                             delta_color="inverse"
                         )
                     
@@ -431,11 +430,8 @@ def main():
                     ])
                     
                     with tab1:
-                        st.subheader(f"Quarterly MRR by {analysis_type} (USD)")
+                        st.subheader(f"Quarterly MRR by {analysis_type}")
                         
-                        # Display the MRR chart
-                        mrr_chart = create_mrr_chart(quarterly_mrr, analysis_type)
-                        st.plotly_chart(mrr_chart, use_container_width=True)
                         
                         # Display the data table
                         st.subheader("Detailed MRR Table")
@@ -844,26 +840,26 @@ def main():
         st.info("Please upload your revenue Excel file using the sidebar to begin analysis.")
         
         # Show sample data format
-        st.subheader("Expected Data Format")
-        st.write("Your Excel file should contain:")
-        if analysis_type == "Geography":
-            st.write("• A **'Country'** column for geographic analysis")
-            st.write("• Monthly revenue columns for 2024 (datetime format)")
-        elif analysis_type == "Industry":
-            st.write("• An **'Industry'** column for industry analysis")
-            st.write("• Monthly revenue columns for 2024 (datetime format)")
-        else:  # Revenue Bridge
-            st.write("• A customer identifier column (Customer, Client, Company Name, etc.)")
-            st.write("• At least 6 monthly revenue columns for 2024 (Q1 + Q2)")
-            st.write("• Individual customer-level data (not aggregated)")
+        #st.subheader("Expected Data Format")
+        #st.write("Your Excel file should contain:")
+        #if analysis_type == "Geography":
+          #  st.write("• A **'Country'** column for geographic analysis")
+          #  st.write("• Monthly revenue columns for 2024 (datetime format)")
+        #elif analysis_type == "Industry":
+         #   st.write("• An **'Industry'** column for industry analysis")
+         #   st.write("• Monthly revenue columns for 2024 (datetime format)")
+        #else:  # Revenue Bridge
+         #   st.write("• A customer identifier column (Customer, Client, Company Name, etc.)")
+         #   st.write("• At least 6 monthly revenue columns for 2024 (Q1 + Q2)")
+         #   st.write("• Individual customer-level data (not aggregated)")
         
-        st.write("• Each row representing a different entity/customer")
+        #st.write("• Each row representing a different entity/customer")
         
         # Analysis-specific tips
-        if analysis_type != "Revenue Bridge":
-            st.info("**Tip:** You can switch between Geography, Industry, and Revenue Bridge analysis using the radio buttons at the top!")
-        else:
-            st.info("**Tip:** Revenue Bridge analysis shows customer movement, churn, expansion, and acquisition insights between Q1 and Q2!")
+        #if analysis_type != "Revenue Bridge":
+           # st.info("**Tip:** You can switch between Geography, Industry, and Revenue Bridge analysis using the radio buttons at the top!")
+       # else:
+           # st.info("**Tip:** Revenue Bridge analysis shows customer movement, churn, expansion, and acquisition insights between Q1 and Q2!")
 
 
 if __name__ == "__main__":
