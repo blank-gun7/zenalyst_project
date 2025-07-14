@@ -23,20 +23,20 @@ def load_and_process_data(file_path, analysis_type):
     df = df.drop(columns=[col for col in columns_to_drop if col in df.columns], errors='ignore')
     
     # Debug: Show remaining columns
-    st.write("**Remaining columns after cleanup:**", len(df.columns))
-    st.write("**All column names:**", df.columns.tolist())
-    st.write("**Column data types:**", df.dtypes.head(20))
+    # st.write("**Remaining columns after cleanup:**", len(df.columns))
+    # st.write("**All column names:**", df.columns.tolist())
+    # st.write("**Column data types:**", df.dtypes.head(20))
     
     # Find the appropriate grouping column based on analysis type
     if analysis_type == "Geography":
         grouping_col = 'Country'
         if grouping_col not in df.columns:
-            st.error(f"Geography column '{grouping_col}' not found!")
+            # st.error(f"Geography column '{grouping_col}' not found!")
             return None, None, None
     else:  # Industry
         grouping_col = 'Industry'
         if grouping_col not in df.columns:
-            st.error(f"Industry column '{grouping_col}' not found!")
+            # st.error(f"Industry column '{grouping_col}' not found!")
             return None, None, None
     
     # IMPROVED: Multiple methods to detect datetime columns for 2024
@@ -83,15 +83,15 @@ def load_and_process_data(file_path, analysis_type):
             # If that fails, sort as strings
             monthly_cols = sorted(monthly_cols)
     
-    st.write(f"**Found {len(monthly_cols)} monthly columns**")
-    if monthly_cols:
-        st.write("**Monthly columns found:**", [str(col) for col in monthly_cols[:6]])
+    # st.write(f"**Found {len(monthly_cols)} monthly columns**")
+    # if monthly_cols:
+    #     st.write("**Monthly columns found:**", [str(col) for col in monthly_cols[:6]])
     
     if len(monthly_cols) == 0:
-        st.error("No monthly revenue columns found for 2024!")
-        st.write("**Debug info - all columns:**")
-        for i, col in enumerate(df.columns):
-            st.write(f"{i}: {col} (type: {type(col)})")
+        # st.error("No monthly revenue columns found for 2024!")
+        # st.write("**Debug info - all columns:**")
+        # for i, col in enumerate(df.columns):
+        #     st.write(f"{i}: {col} (type: {type(col)})")
         return None, None, None
     
     # Prepare clean dataframe
@@ -129,10 +129,10 @@ def load_and_process_data(file_path, analysis_type):
             quarterly_mrr[quarter] = 0
     
     # Debug: Show quarterly totals
-    quarterly_totals = quarterly_mrr.sum()
-    st.write("**Quarterly Totals Debug:**")
-    for quarter, total in quarterly_totals.items():
-        st.write(f"- {quarter}: ${total:,.2f}")
+    # quarterly_totals = quarterly_mrr.sum()
+    # st.write("**Quarterly Totals Debug:**")
+    # for quarter, total in quarterly_totals.items():
+    #     st.write(f"- {quarter}: ${total:,.2f}")
     
     # Calculate quarterly percentages
     quarterly_percentages = pd.DataFrame(index=quarterly_mrr.index)
